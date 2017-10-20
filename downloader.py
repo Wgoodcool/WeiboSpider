@@ -1,21 +1,33 @@
 # -*- coding: utf-8 -*-
+"""
+Created on Mon Oct  9 20:56:11 2017
 
+@author: wzx0518
+"""
 import requests
 from multiprocessing import Process
 import random
 
 from database import proxyOpe
 from middle.transmission import Response
-from middle.queue import uidQueue, requestQueue
-from middle.queue import responseQueue, errorQueue, userResponseQueue
-from middle.queue import proxyQueue
+from middle.middlequeue import uidQueue, requestQueue
+from middle.middlequeue import responseQueue, errorQueue, userResponseQueue
+from middle.middlequeue import proxyQueue
 from middle.settings import useragent, cookie
 
 class Downloader:
     def __init__(self):
-        self.proxy = proxyOpe()
+
+#将队列拉入自己的类中
+        self.quid = uidQueue
+        self.qresquest = requestQueue
+        self.qresponse = responseQueue  
+        self.qerror = errorQueue
+        self.quser = userResponseQueue
+        self.qproxy = proxyQueue
 
     def userRequest (self, uqueue, resqueue, pro):
+        proxy = proxyOpe()
         req = uqueue.get()
 
         while req:
@@ -29,7 +41,7 @@ class Downloader:
             try:
                 req = requests.get(url, headers = header, proxies = proxy)
             except requests.exceptions.ConnectionError as pe:
-                self.proxy.delIp(proxy)
+                proxy.delIp(proxy)
                 uqueue.put(req)
                 continue
 
@@ -44,6 +56,7 @@ class Downloader:
             req = uqueue.get()
 
     def commonRequest (self, requeue, resqueue, equeue, pro):
+        proxy = proxyOpe()
         req = requeue.get()
 
         while req:
@@ -59,7 +72,7 @@ class Downloader:
             except requests.exceptions.ConnectionError as pe:
                 equeue.put(req)
                 req = requeue.get()
-                self.proxy.delIp(proxy)
+                proxy.delIp(proxy)
                 continue
 
             # 没有返回有用数据
@@ -71,7 +84,7 @@ class Downloader:
             res = Response(url, cate, req.text, meta)
             resqueue.put(res)
 
-            req = requeue.get() 
+            req = requeue.get()
 
     def GetHeader(self, cate):
         #header的发送顺序问题
@@ -89,16 +102,17 @@ class Downloader:
             'Host' : 'm.weibo.cn',
             'Upgrade-Insecure-Requests' : '1',
             'X-Requested-With' : 'XMLHttpRequest',
-            'Pragma' : 'no-cache'
+            'Pragma' : 'no-cache',
         }
         if cate != 0:
             header['Referer'] = ''
         return header
 
     def Start(self):
-        uid = Process(target = self.userRequest, args = (uidQueue, userResponseQueue, proxyQueue))
-        com = Process(target = self.commonRequest, args = (requestQueue, responseQueue, errorQueue, proxyQueue))
-
+        uid = Process(target = self.userRequest, args = (self.quid,
+                                                         self.quser, self.qproxy))
+        com = Process(target = self.commonRequest, args = (self.qresquest,
+                                                           self.qresponse, self.qerror, self.qproxy))
         uid.start()
         com.start()
         uid.join()
