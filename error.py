@@ -1,18 +1,16 @@
 # -*- coding: utf-8 -*-
-
 import requests
 import random
 
-from middle.queue import responseQueue, errorQueue, proxyQueue
+from middle.middlequeue import responseQueue, errorQueue, proxyQueue
 from middle.settings import useragent, cookie
 from database import proxyOpe
 from middle.transmission import Response
 
 class ErrorDeal:
-    def __init__(self):
-        self.proxy = proxyOpe()
     
     def Start(self):
+        db_proxy = proxyOpe()
         req = errorQueue.get()
         while req:
             url = req.url
@@ -26,7 +24,7 @@ class ErrorDeal:
             except requests.exceptions.ConnectionError as pe:
                 errorQueue.put(req)
                 req = errorQueue.get()
-                self.proxy.delIp(proxy)
+                db_proxy.delIp(proxy)
                 continue
 
             # 没有返回有用数据
@@ -62,3 +60,6 @@ class ErrorDeal:
             header['Referer'] = ''
         return header    
 
+if __name__ == "__main__":
+    dl = ErrorDeal()
+    dl.Start()
