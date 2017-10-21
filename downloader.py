@@ -1,19 +1,14 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Oct  9 20:56:11 2017
-
-@author: wzx0518
-"""
 import requests
 from multiprocessing import Process
 import random
 
-from database import proxyOpe
 from middle.transmission import Response
 from middle.middlequeue import uidQueue, requestQueue
 from middle.middlequeue import responseQueue, errorQueue, userResponseQueue
 from middle.middlequeue import proxyQueue
 from middle.settings import useragent, cookie
+from manager import InfoManager
 
 class Downloader:
     def __init__(self):
@@ -27,7 +22,9 @@ class Downloader:
         self.qproxy = proxyQueue
 
     def userRequest (self, uqueue, resqueue, pro):
-        proxy = proxyOpe()
+        self.manager = InfoManager()
+        self.manager.start()
+        self.db_proxy = self.manager.proxyOpe()
         req = uqueue.get()
 
         while req:
@@ -41,7 +38,7 @@ class Downloader:
             try:
                 req = requests.get(url, headers = header, proxies = proxy)
             except requests.exceptions.ConnectionError as pe:
-                proxy.delIp(proxy)
+                self.db_proxy.delIp(proxy)
                 uqueue.put(req)
                 continue
 
@@ -56,7 +53,9 @@ class Downloader:
             req = uqueue.get()
 
     def commonRequest (self, requeue, resqueue, equeue, pro):
-        proxy = proxyOpe()
+        self.manager = InfoManager()
+        self.manager.start()
+        self.db_proxy = self.manager.proxyOpe()
         req = requeue.get()
 
         while req:
@@ -72,7 +71,7 @@ class Downloader:
             except requests.exceptions.ConnectionError as pe:
                 equeue.put(req)
                 req = requeue.get()
-                proxy.delIp(proxy)
+                self.db_proxy.delIp(proxy)
                 continue
 
             # 没有返回有用数据
