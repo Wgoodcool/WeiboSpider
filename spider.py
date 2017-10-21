@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
+"""
+Created on Mon Oct  9 08:57:48 2017
+
+@author: wzx0518
+"""
 # =============================================================================
 # TODO: 数据库操作类需要考虑并发问题,数据库操作类需要加锁
 # =============================================================================
-from middle.queue import responseQueue, userResponseQueue
-from database import UserOpe, FanOpe, FolOpe, MblogOpe
+from middle.middlequeue import responseQueue, userResponseQueue
+from manager import InfoManager
 
 from multiprocessing import Process
 import json
@@ -11,23 +16,9 @@ import re
 import datetime
 
 class WeiboSpider:
-    def __init__(self):
-#    数据库操作类
-        self.db_user = UserOpe()
-        self.db_fan = FanOpe()
-        self.db_fol = FolOpe()
-        self.db_mb = MblogOpe()
-# 分别用于转换表情，去除HTML标签，提取数字
-        self.emotion = re.compile('<span.*?url-icon.*?alt="(.*?)">.*?</span>')
-        self.tag = re.compile(r'<[^>]+>',re.S)
-        self.number = re.compile('\D')
-#用于匹配日期
-        self.minutes = '分钟'
-        self.hour = '小时'
-
     def Start(self):
-        com = Process(target = self.CommonSpider, args = (responseQueue))
-        user = Process(target = self.UserSpider, args = (userResponseQueue))
+        com = Process(target = self.CommonSpider, args = (responseQueue, ))
+        user = Process(target = self.UserSpider, args = (userResponseQueue, ))
 
         com.start()
         user.start()
@@ -36,6 +27,22 @@ class WeiboSpider:
         user.join()
 
     def CommonSpider(self, queue):
+        self.manager = InfoManager()
+        self.manager.start()
+# 分别用于转换表情，去除HTML标签，提取数字
+        self.emotion = re.compile('<span.*?url-icon.*?alt="(.*?)">.*?</span>')
+        self.tag = re.compile(r'<[^>]+>',re.S)
+        self.number = re.compile('\D')
+#用于匹配日期
+        self.minutes = '分钟'
+        self.hour = '小时'
+#    数据库操作类
+        
+        self.db_fan = self.manager.FanOpe()
+        self.db_fol = self.manager.FolOpe()
+        self.db_mb = self.manager.MblogOpe()
+        print (type(self.db_fan))
+
         res = queue.get()
         while res:
             if res.category == 1:
@@ -56,6 +63,10 @@ class WeiboSpider:
                 self.db_mb.insert(temp)
 
     def UserSpider(self, queue):
+        self.manager = InfoManager()
+        self.manager.start()
+        self.db_user = self.manager.UserOpe()
+        
         res = queue.get()
         while res:
             if res.category == 0:
@@ -181,3 +192,7 @@ class WeiboSpider:
             arr.append(blog['create_at'])
             res.append(arr)
         return res
+
+if __name__ == "__main__":
+    dl = WeiboSpider()
+    dl.Start()
