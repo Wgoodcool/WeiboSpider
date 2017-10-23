@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
-
 from database import proxyOpe
-from middle.queue import proxyQueue
+from middle.middlequeue import proxyQueue
+import time
+import random
 
 class ProxyCreate:
-    def __init (self):
-        self.proxy = proxyOpe()
+    def __init__(self):
+        self.proxyQueue = proxyQueue
 
-    def Start(self, queue):
+    def Start(self):
+        print ('Is proxy')
+        self.proxy = proxyOpe()
         while True:
+            if (self.proxyQueue.qsize() > 10):
+                time.sleep(random.randint(3, 6))
             det = None
             pro = self.proxy.getProxy()
             pro = ()
             if pro:
                 res = '%s:%s' % pro
                 det = {'https' : res}
-            proxyQueue.put(det)
+            self.proxyQueue.put(det)
