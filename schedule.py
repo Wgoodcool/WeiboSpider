@@ -1,38 +1,53 @@
 # -*- coding: utf-8 -*-
 from middle.transmission import Request
-from middle.queue import requestQueue, uidQueue
-from database import UserOpe
+from middle.middlequeue import requestQueue, uidQueue
+from manager import InfoManager
+
 from math import ceil
 import random
-from multiprocessing import Queue
+import time
 
 class Schedule:
     def __init__(self):
-        self.infoQueueSize = 30
-        self.pageOfmblog = self.pageOffans = self.pageOffol = self.uid = 0
-        self.user = UserOpe()
-        self.userInfoQueue = Queue(self.infoQueueSize)
+        self.uidQueue = uidQueue
+        self.requestQueue = requestQueue
+# =============================================================================
+# TODO: getId()可以控制一次返回的数量，不用频繁的读写数据库
+# =============================================================================
+#种子用户需稍微多些，以免不够用
+    def Start(self):
+        self.manager = InfoManager()
+        self.manager.start()
+        self.db_user = self.manager.UserOpe()
 
+        self.initUrl()
+
+        info = self.db_user.getInfo()
+        print ('Is Schedule')
+        while True:
+            if info:
+                self.CreateInfoRequest(info)
+                uid = self.db_user.getId(10)
+                self.CreateUidRequest(uid)
+                info = self.db_user.getInfo()
+            else:
+                print ('sleep')
+                time.sleep(random.randint(10, 15))
+                uid = self.db_user.getId(5)
+                self.CreateUidRequest(uid)
+
+    def CreateUidRequest(self, uset):
+        print ('CreateUidRequest')
+        for n in uset:
+            req = Request(self.user_url.format(n), 0, meta = {'uid' : n})
+            self.uidQueue.put(req)
+
+    def initUrl(self):
         self.user_url = 'https://m.weibo.cn/api/container/getIndex?type=uid&value={0}&containerid=100505{0}'
         self.detail_url = 'https://m.weibo.cn/api/container/getIndex?containerid=230283{0}_-_INFO&title=%25E5%259F%25BA%25E6%259C%25AC%25E4%25BF%25A1%25E6%2581%25AF&luicode=10000011&lfid=230283{0}&type=uid&value={0}'
-        self.fans_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_fans_-_%s&luicode=10000011&lfid=100505%s&featurecode=10000326&type=uid&value=%s&since_id={1}'
-        self.fol_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_followers_-_%s&luicode=10000011&lfid=100505%s&featurecode=10000326&type=uid&value=%s&page={1}'
-        self.blog_url = 'https://m.weibo.cn/api/container/getIndex?uid=%s&luicode=10000011&lfid=107603%s&featurecode=10000326&type=uid&value=%s&containerid=107603%s&page={1}'
-
-#种子用户需稍微多些，以免不够用
-    def Start(self, test):
-        print (test)
-        info = self.user.getInfo()
-        while info:
-            self.CreateInfoRequest(info)
-            for n in range(5):
-                uid = self.user.getId()
-                self.CreateUidRequest(uid)
-            info = self.user.getInfo()
-
-    def CreateUidRequest(self):
-        req = Request(self.user_url.format(self.uid), 0, meta = {'uid' : self.uid})
-        uidQueue.put(req)
+        self.fans_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_fans_-_{0}&luicode=10000011&lfid=100505{0}&featurecode=10000326&type=uid&value={0}&since_id=%s'
+        self.fol_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_followers_-_{0}&luicode=10000011&lfid=100505{0}&featurecode=10000326&type=uid&value={0}&page=%s'
+        self.blog_url = 'https://m.weibo.cn/api/container/getIndex?uid={0}&luicode=10000011&lfid=107603{0}&featurecode=10000326&type=uid&value={0}&containerid=107603{0}&page=%s'
 
 # 具体页码规则数还需完善
     def fillPage(self, info):
@@ -43,9 +58,9 @@ class Schedule:
 
     def CreateInfoRequest(self, info):
         self.fillPage(info)
-        fa_url = self.fans_url % self.uid
-        fo_url = self.fol_url % self.uid
-        mb_url = self.blog_url % self.uid
+        fa_url = self.fans_url.format(self.uid)
+        fo_url = self.fol_url.format(self.uid)
+        mb_url = self.blog_url.format(self.uid)
 
 #   将各类请求随机取段，封装成request，加入requestQueue, 随机取段算法可能有误
         blog_start = fan_start = fol_start = 1
@@ -62,21 +77,25 @@ class Schedule:
                 if n == fa:
                     blog_start = fa
                     break
-                req = Request(mb_url.format(n), 
+                req = Request((mb_url % n), 
                                 category = 2, meta = {'uid' : self.uid})
-                requestQueue.put(req)
+                self.requestQueue.put(req)
             for n in range(fol_start, self.pageOffol + 1):
                 if n == fo:
                     blog_start = fo
                     break
-                req = Request(fo_url.format(n), 
+                req = Request((fo_url % n), 
                                 category = 3, meta = {'uid' : self.uid})
-                requestQueue.put(req)
+                self.requestQueue.put(req)
             for n in range(blog_start, self.pageOfmblog + 1):
                 if n == mb:
                     blog_start = mb
                     break
-                req = Request(fa_url.format(n), category = 4)
-                requestQueue.put(req)                    
+                req = Request((fa_url % n), category = 4)
+                self.requestQueue.put(req)                    
         req = Request(self.detail_url.format(self.uid), category = 1)
-        requestQueue.put(req)       
+        self.requestQueue.put(req)       
+
+if __name__ == "__main__":
+    dl = Schedule()
+    dl.Start()
