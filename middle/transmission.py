@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 # =============================================================================
 # @param url 网址
 # @param category 类别
@@ -21,7 +20,7 @@ class Request:
     
     @property
     def category(self):
-        return self.__category
+        return self.___category
 
     @property
     def meta(self):
