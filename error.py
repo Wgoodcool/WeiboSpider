@@ -8,35 +8,41 @@ from database import proxyOpe
 from middle.transmission import Response
 
 class ErrorDeal:
+    def __init__(self):
+        self.responseQueue = responseQueue
+        self.errorQueue = errorQueue
+        self.proxyQueue = proxyQueue
     
     def Start(self):
+        print ('Is Error')
         db_proxy = proxyOpe()
-        req = errorQueue.get()
+        req = self.errorQueue.get()
+        print ('Error Get')
         while req:
             url = req.url
             cate = req.categoty()
             meta = req.meta()
             proxy = None
             header = self.GetHeader(cate)
-            proxy = proxyQueue.get()
+            proxy = self.proxyQueue.get()
             try:
                 req = requests.get(url, headers = header, proxies = proxy)
             except requests.exceptions.ConnectionError as pe:
-                errorQueue.put(req)
-                req = errorQueue.get()
+                self.errorQueue.put(req)
+                req = self.errorQueue.get()
                 db_proxy.delIp(proxy)
                 continue
 
             # 没有返回有用数据
             if (len(req.text) < 500) or req.status_code != 200:
-                errorQueue.put(req)
-                req = errorQueue.get()
+                self.errorQueue.put(req)
+                req = self.errorQueue.get()
                 continue
 
             res = Response(url, cate, req.text, meta)
-            responseQueue.put(res)            
+            self.responseQueue.put(res)            
             
-            req = errorQueue.get()
+            req = self.errorQueue.get()
 
     def GetHeader(self, cate):
         #header的发送顺序问题
