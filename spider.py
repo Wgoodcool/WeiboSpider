@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Oct  9 08:57:48 2017
-
-@author: wzx0518
-"""
 # =============================================================================
-# TODO: 数据库操作类需要考虑并发问题,数据库操作类需要加锁
+# TODO: 数据库操作类需要考虑同步问题,数据库操作类需要加锁
 # =============================================================================
 from middle.middlequeue import responseQueue, userResponseQueue
 from manager import InfoManager
@@ -16,13 +11,18 @@ import re
 import datetime
 
 class WeiboSpider:
-    def Start(self):
-        com = Process(target = self.CommonSpider, args = (responseQueue, ))
-        user = Process(target = self.UserSpider, args = (userResponseQueue, ))
+    def __init__(self):
+        self.responseQueue = responseQueue
+        self.userResponseQueue = userResponseQueue
 
+    def Start(self):
+        print ('Is Spider')
+        com = Process(target = self.CommonSpider, args = (self.responseQueue, ))
+        user = Process(target = self.UserSpider, args = (self.userResponseQueue, ))
+        print ('Spider Start')
         com.start()
         user.start()
-
+        
         com.join()
         user.join()
 
@@ -36,14 +36,17 @@ class WeiboSpider:
 #用于匹配日期
         self.minutes = '分钟'
         self.hour = '小时'
+        self.yeaterday = '昨天'
 #    数据库操作类
-        
+
         self.db_fan = self.manager.FanOpe()
         self.db_fol = self.manager.FolOpe()
         self.db_mb = self.manager.MblogOpe()
-        print (type(self.db_fan))
 
+        print ('CommonSpider')
         res = queue.get()
+        print ('CommonSpider Get')
+
         while res:
             if res.category == 1:
                 result = self.getDetail(res.text)
@@ -61,18 +64,20 @@ class WeiboSpider:
                 result = self.getMblog(res.text)
                 temp = self.getMblog(result)
                 self.db_mb.insert(temp)
+            res = queue.get()
 
     def UserSpider(self, queue):
         self.manager = InfoManager()
         self.manager.start()
         self.db_user = self.manager.UserOpe()
-        
+
+        print ('UserSpider')
         res = queue.get()
+        print ('UserSpider Get')
         while res:
             if res.category == 0:
                 result = self.getUserInfo(res.text)
-                if result[2] <= 3000 or result[3] <= 3000:
-                    self.db_user.insert(result)
+                self.db_user.insert(result)
             res = queue.get()
 
 #从字典中获取相应的值
@@ -84,11 +89,11 @@ class WeiboSpider:
         temp.append(user['statuses_count'])
         temp.append(user['followers_count'])
         temp.append(user['follow_count'])
-        temp.append(user['urank'])
+        temp.append(user.get('urank', -1))
         temp.append(user['screen_name'])
         temp.append(user['description'])
-        temp.append(user['gender'])
-        temp.append(user['verified_reason'])
+        temp.append(user.get('gender', 'NULL'))
+        temp.append(user.get('verified_reason', 'NULL'))
         return temp
 
     def getDetail(self, res):
@@ -134,6 +139,10 @@ class WeiboSpider:
             num = int(self.number.sub('', date))
             date = datetime.datetime.now() - datetime.timedelta(hours=num)
             return date.strftime('%Y-%m-%d')
+        elif date.find(self.yeaterday) != -1:
+            now = datetime.datetime.now()
+            yes = datetime.timedelta(days=1)
+            return (now - yes).strftime('%Y-%m-%d')
         else:
             return date
 
@@ -168,13 +177,12 @@ class WeiboSpider:
             arr['text'] = self.clean(det['text'], arr['retweeted_status'])
             arr['textLength'] = len(arr['text'])
             arr['create_at'] = self.getDate(det['created_at'])
-            arr['picture_road'] = 'None'
             
             temp.append(arr)
         del js
         temp = self.dic2list(temp)
         return temp
-    
+
     def dic2list(self, temp):
         res = []
         for blog in range(len(temp)):
