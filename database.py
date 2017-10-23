@@ -28,7 +28,8 @@ class SqlOpe:
             return res[0]
 
     def removeUser(self, uid):
-        sql = 'DELETE FROM {} WHERE `userid` = {}'.format(self.table, uid)
+        uid = str(tuple(uid))
+        sql = 'DELETE FROM `{}` WHERE `userid` IN '.format(self.table) + uid
         res = self.cursor.execute(sql)
         self.ope.commit()
         return res
@@ -40,6 +41,7 @@ class SqlOpe:
 # `redundance` = 0 代表该用户ID仅存有ID
 #              = 1 代表该用户已完善第一步信息
 #              = 2 代表该用户已经完成爬取
+#              = 3 代表该用户粉丝数微博数大于3000，只记录信息，不对其进行爬取
 class UserOpe (SqlOpe):
     def __init__(self, user = MYSQL_USER, pw = MYSQL_PW, table = DB_USERINFO, 
                  hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
@@ -50,7 +52,11 @@ class UserOpe (SqlOpe):
         sql = 'INSERT INTO `{}`(`userid`, `statuses_count`,\
                 `fans_count`, `follow_count`, `urank`, `username`, \
                 `description`, `gender`, `verified_reason`) VALUES'.format(self.table)
-        end = ' ON DUPLICATE KEY UPDATE `redundance` = 1'
+
+        if (info[2] > 3000 or info[3] > 3000):
+            end = ' ON DUPLICATE KEY UPDATE `redundance` = 3'
+        else:
+            end = ' ON DUPLICATE KEY UPDATE `redundance` = 1'
         num = ' %s,' * 5
         char = ' \'%s\',' * 4
         val = ' (' + num[1:] + char[:-1] + ')'
@@ -71,14 +77,18 @@ class UserOpe (SqlOpe):
             self.ope.rollback()
 
 #获取用户ID，用于完善信息
-    def getId(self):
-        sql = 'SELECT `userid` FROM `{}` WHERE `redundance` = 0 LIMIT 1'.format(self.table)
+    def getId(self, num):
+        sql = 'SELECT `userid` FROM `{}` WHERE `redundance` = 0 LIMIT '.format(self.table) + str(num)
         self.cursor.execute(sql)
-        res = self.cursor.fetchone()
+        res = self.cursor.fetchall()
         if res is None:
             return None
         else:
-            return res[0]
+            uid = []
+            for n in res:
+                uid.append(n[0])
+            self.removeUser(uid)
+            return uid
 
 #获取用户信息用于后续爬取
     def getInfo(self):
@@ -100,6 +110,7 @@ class MblogOpe (SqlOpe):
     def insert(self, info):
         sql = 'INSERT INTO `{}` VALUES'.format(self.table)
         det = []
+        end = ' ON DUPLICATE KEY UPDATE `uid` = `uid` AND `mid` = `mid`'
         for item in info:
             num = ' %s,' * 8
             char = ' \'%s\',' * 3
@@ -107,7 +118,7 @@ class MblogOpe (SqlOpe):
             val = val % tuple(item)
             det.append(val)
         val = ','.join(det)
-        sql = sql + val
+        sql = sql + val + end
         self.cursor.execute(sql)
         self.ope.commit()
 
@@ -121,9 +132,10 @@ class FanOpe (SqlOpe):
 
     def insert(self, hoster, uid):
         sql = 'INSERT INTO `{}` VALUES'.format(self.table)
+        end = ' ON DUPLICATE KEY UPDATE `uid` = `uid` AND `fan_id` = `fan_id`'
         val = ' ({}, %s),'.format(hoster)
         val = val * len(uid) % tuple(uid)
-        sql = sql + val[:-1]
+        sql = sql + val[:-1] + end
         self.cursor.execute(sql)
         self.ope.commit()
 
@@ -134,9 +146,10 @@ class FolOpe (SqlOpe):
 
     def insert(self, hoster, uid):
         sql = 'INSERT INTO `{}` VALUES'.format(self.table)
+        end = ' ON DUPLICATE KEY UPDATE `uid` = `uid` AND `follow_id` = `follow_id`'
         val = ' ({}, %s),'.format(hoster)
         val = val * len(uid) % tuple(uid)
-        sql = sql + val[:-1]
+        sql = sql + val[:-1] + end
         self.cursor.execute(sql)
         self.ope.commit()
 
@@ -144,7 +157,7 @@ class proxyOpe(SqlOpe):
     def __init__(self, user = MYSQL_USER, pw = MYSQL_PW, table = DB_PROXY, 
                  hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
         SqlOpe.__init__(self, user, pw, table, hosts, port, db)
-    
+
     def delIp(self, ip):
         sql = 'DELETE FROM `{}` WHERE '
         sql = 'DELETE FROM `{}` WHERE `ip` = \''.format(self.table)
@@ -160,3 +173,6 @@ class proxyOpe(SqlOpe):
             return None
         else:
             return res
+
+if __name__ == "__main__":
+    url = UserOpe()
