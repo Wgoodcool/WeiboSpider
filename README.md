@@ -1,6 +1,11 @@
 # WeiboSpider
 这是一个新浪微博爬虫，刚刚起步，后续会逐渐完善。整体的架构图过阵子补上
 
+# TODO:
+* 将downloader改为协程，加快处理速度
+* 储存解析好的DNS结果，供downloader直接使用，减少DNS请求时间
+* 加上断点续抓功能
+
 ## 微博架构图
 
 #### database
