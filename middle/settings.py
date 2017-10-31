@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
-
-
-'''
- The Setting Of Weibo Spider
-'''
+# =============================================================================
+# The Setting Of Weibo Spider
+# =============================================================================
 
 # =============================================================================
-# MySQL setting
+# database 
 # =============================================================================
+
+# MySQL相关配置信息
 MYSQL_DB = 'weibo_info'
 MYSQL_HOSTS = '127.0.0.1'
 MYSQL_USER = 'root'
@@ -17,14 +16,26 @@ MYSQL_PORT = 3306
 DB_USERINFO = 'user_info'
 DB_MBLOGINFO = 'weibo_info'
 DB_FOLINFO = 'follow'
-DB_FANINFO = 'fan'
+DB_FANINFO = 'db_fan'
 DB_PROXY = 'ip'
 
+# =============================================================================
+# Downloader 
+# =============================================================================
 
-# =============================================================================
+#一次可以开启的进程数量
+ProcessNumber = 5
+#用户ID协程一次能够处理的request数
+uidGeventProcessNumber = 2
+#详情协程一次能够处理的request数
+infoGeventProcessNumber = 2
+#用户id协程最大并行量
+maxuidCoroutineNum = 50
+#详情协程最大并行量
+maxinfoCoroutineNum = 50
+
 # Header
-# =============================================================================
-useragent = [
+UserAgent = [
     "Mozilla/5.0 (Linux; U; Android 2.3.6; en-us; Nexus S Build/GRK39F) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1",
     "Avant Browser/1.2.789rel1 (http://www.avantbrowser.com)",
     "Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US) AppleWebKit/532.5 (KHTML, like Gecko) Chrome/4.0.249.0 Safari/532.5",
