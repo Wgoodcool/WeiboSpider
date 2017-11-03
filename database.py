@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # =============================================================================
 # TODO: 所有操作失败后的处理方式
 # TODO: 各操作类需要加锁
@@ -28,6 +29,7 @@ class SqlOpe:
             return res[0]
 
     def removeUser(self, uid):
+        #只删除一个会出问题，但是该爬虫不会出现只删除一次的情况，故不需要更多考虑
         uid = str(tuple(uid))
         sql = 'DELETE FROM `{}` WHERE `userid` IN '.format(self.table) + uid
         res = self.cursor.execute(sql)
@@ -87,6 +89,7 @@ class UserOpe (SqlOpe):
             uid = []
             for n in res:
                 uid.append(n[0])
+            print (uid)
             self.removeUser(uid)
             return uid
 
@@ -176,3 +179,4 @@ class proxyOpe(SqlOpe):
 
 if __name__ == "__main__":
     url = UserOpe()
+    print (url.getId(1))
