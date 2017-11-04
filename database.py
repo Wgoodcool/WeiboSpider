@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
 # =============================================================================
+# 更新说明：
+# 将个别函数出错的sql全都输出到文件中，方便查看具体错误
+# 对getInfo()进行逻辑完善，使其在返回用户信时，将redundance置为4，保证当下不被反复抓取
+# ！！！此处存在插入关注信息时会出现被关注者ID为1的情况！！！
+# =============================================================================
 # TODO: 所有操作失败后的处理方式
 # TODO: 各操作类需要加锁
-# =============================================================================
 import pymysql as pm
 from middle.settings import MYSQL_DB, MYSQL_HOSTS, MYSQL_USER, MYSQL_PW, MYSQL_PORT
 from middle.settings import DB_USERINFO, DB_MBLOGINFO, DB_FOLINFO, DB_FANINFO, DB_PROXY
 
-class SqlOpe: 
+class SqlOpe:
     def __init__(self, user, pw, table, hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
         self.ope = pm.connect(host = hosts, 
-                              port = port,   
-                              db = db,  
-                              user = user, 
+                              port = port,
+                              db = db,
+                              user = user,
                               password = pw,
                               charset = 'utf8')
         self.table = table
@@ -44,6 +48,7 @@ class SqlOpe:
 #              = 1 代表该用户已完善第一步信息
 #              = 2 代表该用户已经完成爬取
 #              = 3 代表该用户粉丝数微博数大于3000，只记录信息，不对其进行爬取
+#              = 4 代表该用户正在被爬取
 class UserOpe (SqlOpe):
     def __init__(self, user = MYSQL_USER, pw = MYSQL_PW, table = DB_USERINFO, 
                  hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
@@ -53,18 +58,26 @@ class UserOpe (SqlOpe):
     def insert (self, info):
         sql = 'INSERT INTO `{}`(`userid`, `statuses_count`,\
                 `fans_count`, `follow_count`, `urank`, `username`, \
-                `description`, `gender`, `verified_reason`) VALUES'.format(self.table)
+                `description`, `gender`, `verified_reason`, `redundance`) VALUES'.format(self.table)
+
+        num = ' %s,' * 5
+        char = ' \'%s\',' * 4
 
         if (info[2] > 3000 or info[3] > 3000):
             end = ' ON DUPLICATE KEY UPDATE `redundance` = 3'
+            val = ' (' + num[1:] + char + ' 3)'
         else:
             end = ' ON DUPLICATE KEY UPDATE `redundance` = 1'
-        num = ' %s,' * 5
-        char = ' \'%s\',' * 4
-        val = ' (' + num[1:] + char[:-1] + ')'
+            val = ' (' + num[1:] + char + ' 1)'
+
         val = val % tuple(info)
         sql = sql + val + end
-        self.cursor.execute(sql)
+        try:
+            self.cursor.execute(sql)
+        except:
+            with open('insertwrong.txt', 'a+') as f:
+                f.write(sql)
+            print (sql)
         self.ope.commit()
 
 # 完善用户所有信息
@@ -90,7 +103,8 @@ class UserOpe (SqlOpe):
             for n in res:
                 uid.append(n[0])
             print (uid)
-            self.removeUser(uid)
+            if uid.__len__() != 0:
+                self.removeUser(uid)
             return uid
 
 #获取用户信息用于后续爬取
@@ -100,9 +114,13 @@ class UserOpe (SqlOpe):
 
         self.cursor.execute(sql)
         res = self.cursor.fetchone()
+
         if res is None:
             return None
         else:
+            sql = 'UPDATE {} SET `redundance` = 4 WHERE `userid` = {}'.format(self.table, res[0])
+            self.cursor.execute(sql)
+            self.ope.commit()
             return res
 
 class MblogOpe (SqlOpe):
@@ -122,7 +140,11 @@ class MblogOpe (SqlOpe):
             det.append(val)
         val = ','.join(det)
         sql = sql + val + end
-        self.cursor.execute(sql)
+        try:
+            self.cursor.execute(sql)
+        except:
+            with open('mblogwrong.txt', 'a+') as f:
+                f.write(sql)
         self.ope.commit()
 
 # =============================================================================
