@@ -1,9 +1,15 @@
+#==================================================================================
+# 更新说明
+# 买了一堆代理ip，启用了代理进行抓取，但是该代理的有效率低下，相应时间较慢
+# 解决了协程处理时的问题，前一份代码在userFetch()和infoFetch()会出现没有赋值就引用的错误
+# 其他零零碎碎完善
+#==================================================================================
 from middle.transmission import Response
 from middle.middlequeue import uidQueue, requestQueue
 from middle.middlequeue import responseQueue, errorQueue, userResponseQueue
 from middle.middlequeue import proxyQueue
 from middle.middlequeue import logQueue
-from middle.settings import cookie#, UserAgent
+from middle.settings import cookie, UserAgent
 from middle.settings import ProcessNumber, uidGeventProcessNumber, infoGeventProcessNumber
 from middle.settings import maxuidCoroutineNum, maxinfoCoroutineNum
 from manager import InfoManager
@@ -39,10 +45,10 @@ class Downloader:
         self.infoGeventProcessNumber = infoGeventProcessNumber
 
     def getLog(self, name):
-        print ('getLog')
         logger = logging.getLogger(name)
         queue_handler = QueueHandler(self.logqueue)
         logger.addHandler(queue_handler)
+        logger.warning('GetLog')
 
         return logger
 
@@ -99,26 +105,26 @@ class Downloader:
         cate = req.category
         meta = req.meta
         header = self.GetHeader(cate)
-#        proxy = self.qproxy.get()
-        proxy = None
+        proxy = self.qproxy.get()
+        # proxy = None
 
         try:
             self.sem.acquire()
-            req = requests.get(url, headers = header, proxies = proxy)
-            print (type(req))
+            userRes = requests.get(url, headers = header, proxies = proxy, timeout = 5)
         except requests.exceptions.ConnectionError as pe:
-            #self.db_proxy.delIp(proxy)
+            self.quid.put(req)
+        except requests.exceptions.Timeout as time:
             self.quid.put(req)
         finally:
             self.sem.release()
-
+            return
         # 没有返回有用数据
-        if (len(req.text) < 500) or req.status_code != 200:
+        if (len(userRes.text) < 500) or (userRes.status_code != 200):
             print ('Downloader Fail')
             self.quid.put(req)
 
-        res = Response(url, cate, req.text, meta)
-        self.quser.put(res)
+        userResponse = Response(url, cate, userRes.text, meta)
+        self.quser.put(userResponse)
 
     def infoRequestManager(self):
         print ('infoRequestManager')
@@ -137,6 +143,7 @@ class Downloader:
                 self.ProcessNumberQueue.put(0)
 
     def infoGevent(self, infoReqList):
+        print ('infoGevent')
         log = self.getLog('Downloader.infoGevent')
         log.warning('Start')
         #一次允许并发的最大协程数
@@ -147,46 +154,45 @@ class Downloader:
 
         task = []
         for req in infoReqList:
-            task.append(gevent.spawn(self.infoFetch, req))
+            task.append(gevent.spawn(self.infoFetch, (req, log)))
         gevent.joinall(task)
 
         log.warning('Process End')
         self.ProcessNumberQueue.get()
 
-    def infoFetch(self, req):
+    def infoFetch(self, param):
+        log = param[1]
+        req = param[0]
         url = req.url
-        cate = req.categoty
+        cate = req.category
         meta = req.meta
         header = self.GetHeader(cate)
-# =============================================================================
-#             测试暂时不需要代理
-# =============================================================================
-        # proxy = self.qproxy.get()
-        proxy = None
+        proxy = self.qproxy.get()
 
         try:
             self.sem.acquire()
-            req = requests.get(url, headers = header, proxies = proxy)
+            infoRes = requests.get(url, headers = header, proxies = proxy, timeout = 5)
         except requests.exceptions.ConnectionError as pe:
             self.qerror.put(req)
-            # self.db_proxy.delIp(proxy)
+        except requests.exceptions.Timeout as time:
+            self.qerror.put(req)
         finally:
             self.sem.release()
+            return
 
         # 没有返回有用数据
-        #代理池增加一个字段，此处失败一次，该字段自增1.大于一定值删除
-        if (len(req.text) < 500) or req.status_code != 200:
+        if (len(infoRes.text) < 500) or (infoRes.status_code != 200):
             self.qerror.put(req)
-            self.log.warning('Fail')
+            log.warning('Fail')
         else:
-            res = Response(url, cate, req.text, meta)
-            self.qresponse.put(res)
+            infoResponse = Response(url, cate, infoRes.text, meta)
+            log.warning('Succeed')
+            self.qresponse.put(infoResponse)
 
     def GetHeader(self, cate):
         #header的发送顺序问题
         header = {}
-#        ug = random.choise(useragent)
-        ug = "Mozilla/5.0 (Linux; U; Android 1.6; es-es; SonyEricssonX10i Build/R1FA016) AppleWebKit/528.5  (KHTML, like Gecko) Version/3.1.2 Mobile Safari/525.20.1"
+        ug = random.choice(UserAgent)
         ck = random.choice(cookie)
         header = {
             'Accept' : 'application/json, text/plain, */*',
