@@ -7,17 +7,19 @@
 #   == 2 表明该Request为粉丝数据，spider存入fans数据库
 #   == 3 表明该Request为关注者数据，spider存入follow数据库
 #   == 4 表明该Request为微博详情数，spider存入mblog数据库
+# times 用于确定失败次数，超过一定失败次数的请求直接丢除
 # =============================================================================
 class Request:
     def __init__(self, url, category, meta = {}):
         self.__url = url
         self.___category = category
         self.__meta = meta
-    
+        self.__times = 0
+
     @property
     def url(self):
         return self.__url
-    
+
     @property
     def category(self):
         return self.___category
@@ -26,10 +28,18 @@ class Request:
     def meta(self):
         return self.__meta
 
+    @property
+    def time(self):
+        return self.__times
+
+    @time.setter
+    def time(self, num):
+        self.__times += num
+
 class Response:
     def __init__(self, url, category, text, meta = {}):
         self.__url = url
-        self.__category = category
+        self.___category = category
         self.__text = text
         self.__meta = meta
     
@@ -40,11 +50,11 @@ class Response:
     @property
     def url(self):
         return self.__url
-    
+
     @property
     def text(self):
         return self.__text
-    
+
     @property
     def category(self):
-        return self.__category
+        return self.___category
