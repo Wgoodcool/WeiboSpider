@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 from middle.transmission import Request
 from middle.middlequeue import requestQueue, uidQueue
-from middle.middlequeue import logQueue
+from middle.middlequeue import logQueue, errorQueue
+from middle.settings import MaxrequestQueueSize
 from database import UserOpe
-from middle.settings import GetIDNumber
+from middle.settings import GetIDNumber, MaxErrorQueueSize
 
 from math import ceil
 import random
@@ -14,6 +15,7 @@ from logging.handlers import QueueHandler
 class Schedule:
     def __init__(self):
         self.uidQueue = uidQueue
+        self.errorQueue = errorQueue
         self.requestQueue = requestQueue
         self.initUrl()
         #日志队列
@@ -37,26 +39,31 @@ class Schedule:
 
         self.log = self.getLog('Schedule')
         self.log.warning('Start')
+        try:
+            while True:
+                self.log.warning('Get info ' + str(info))
+                if info:
+                    self.CreateInfoRequest(info, self.log)
+                    uid = self.db_user.getId(GetIDNumber)
+                    self.CreateUidRequest(uid, self.log)
+                    self.log.warning('Finish ' + str(info[0]))
+                else:
+                    self.log.warning('Sleep')
+                    #等待时间
+                    time.sleep(2)
+                    uid = self.db_user.getId(GetIDNumber)
+                    self.CreateUidRequest(uid, self.log)
+                info = self.db_user.getInfo()
 
-        while True:
-            if info:
-                self.CreateInfoRequest(info)
-                uid = self.db_user.getId(GetIDNumber)
-                self.CreateUidRequest(uid)
-                self.log.warning('Finish ' + str(info[0]))
-            else:
-                print ('sleep')
-                #等待时间
-                time.sleep(random.randint(3, 5))
-                uid = self.db_user.getId(GetIDNumber)
-                self.CreateUidRequest(uid)
-            info = self.db_user.getInfo()
+        except KeyboardInterrupt as ki:
+            self.log.warning('self.requestQueue.qsize() = ' + self.requestQueue.qsize())
+            self.log.warning('self.uidQueue.qsize() = ' + self.uidQueue.qsize())
 
-    def CreateUidRequest(self, uset):
-        print ('CreateUidRequest')
+    def CreateUidRequest(self, uset, log):
         for n in uset:
             req = Request(self.user_url.format(n), 0, meta = {'uid' : n})
             self.uidQueue.put(req)
+            log.warning('self.uidQueue.size = ' + str(self.uidQueue.qsize()))
 
     def initUrl(self):
         self.user_url = 'https://m.weibo.cn/api/container/getIndex?type=uid&value={0}&containerid=100505{0}'
@@ -77,7 +84,7 @@ class Schedule:
             yield n
 
 #   将各类请求随机取段，封装成request，加入requestQueue,
-    def CreateInfoRequest(self, info):
+    def CreateInfoRequest(self, info, log):
         self.fillPage(info)
         fa_url = self.fans_url.format(self.uid)
         fo_url = self.fol_url.format(self.uid)
@@ -87,7 +94,19 @@ class Schedule:
         mblog = self.CreatedPageNum(self.pageOfmblog)
         fans = self.CreatedPageNum(self.pageOffans)
         follows = self.CreatedPageNum(self.pageOffol)
+        intoErrorQueue = False
         while kind.__len__():
+
+            size = self.requestQueue.qsize()
+            log.warning('self.requestQueue.size = ' + str(size))
+            errsize = self.errorQueue.qsize()
+            log.warning('self.errorQueue.size = ' + str(errsize))
+
+            if errsize > MaxErrorQueueSize and intoErrorQueue:
+                for n in range(MaxErrorQueueSize):
+                    temp = self.errorQueue.get()
+                    self.requestQueue.put(temp)
+                intoErrorQueue = False          
 
             if kind.__len__() != 1:
                 choice = random.choice(kind)
@@ -100,36 +119,38 @@ class Schedule:
                 try:
                     for n in range(run):
                         page = next(mblog)
-                        req = Request((fa_url % page), category = 4)
+                        req = Request((mb_url % page),
+                                        category = 4, meta = {'uid' : self.uid})
                         self.requestQueue.put(req)
                 except StopIteration as st:
                     kind.remove(4)
-                    break
+
             elif choice == 2:
                 try:
                     for n in range(run):
                         page = next(fans)
-                        req = Request((mb_url % page), 
+                        req = Request((fa_url % page),
                                         category = 2, meta = {'uid' : self.uid})
                         self.requestQueue.put(req)                      
                 except StopIteration as st:
                     kind.remove(2)
-                    break
+
             else:
                 try:
                     for n in range(run):
                         page = next(follows)
-                        req = Request((fo_url % page), 
+                        req = Request((fo_url % page),
                                         category = 3, meta = {'uid' : self.uid})
                         self.requestQueue.put(req)
                 except StopIteration as st:
                     kind.remove(3)
-                    break
+
 
         req = Request(self.detail_url.format(self.uid), category = 1, 
                                                 meta = {'uid' : self.uid})
         print ('CreateInfoRequest ', self.uid)
         self.requestQueue.put(req)       
+        intoErrorQueue = True
 
 if __name__ == "__main__":
     dl = Schedule()
