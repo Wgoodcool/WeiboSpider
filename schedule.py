@@ -1,24 +1,25 @@
 # -*- coding: utf-8 -*-
-from middle.transmission import Request
-from middle.middlequeue import requestQueue, uidQueue
-from middle.middlequeue import logQueue, errorQueue
-from middle.settings import MaxrequestQueueSize
-from database import UserOpe
-from middle.settings import GetIDNumber, MaxErrorQueueSize
+# =============================================================================
+# TODO: 数据库操作类需要考虑并发问题,数据库操作类需要加锁
+# =============================================================================
+from middle.middlequeue import responseQueue, userResponseQueue
+from middle.middlequeue import logQueue
+#from manager import InfoManager
+from database import UserOpe, FanOpe, FolOpe, MblogOpe
 
-from math import ceil
-import random
-import time
 import logging
 from logging.handlers import QueueHandler
+from multiprocessing import Process
+import json
+import re
+import datetime
+import traceback
+import pymysql as pm
 
-class Schedule:
+class WeiboSpider:
     def __init__(self):
-        self.uidQueue = uidQueue
-        self.errorQueue = errorQueue
-        self.requestQueue = requestQueue
-        self.initUrl()
-        #日志队列
+        self.responseQueue = responseQueue
+        self.userResponseQueue = userResponseQueue
         self.logqueue = logQueue
 
     def getLog(self, name):
@@ -28,130 +29,310 @@ class Schedule:
 
         return logger
 
-#种子用户需稍微多些，以免不够用
     def Start(self):
-        #manager不能放在__init__初始化？？？？
+        try:
+            log = self.getLog('Spider')
+            com = Process(target = self.CommonSpider, args = (self.responseQueue, ))
+            user = Process(target = self.UserSpider, args = (self.userResponseQueue, ))
+            log.warning('Start')
+            com.start()
+            user.start()
+
+            com.join()
+            user.join()
+        except KeyboardInterrupt as Ki:
+            log.warning('self.responseQueue.qize() = ' + self.responseQueue.qsize())
+            log.warning('self.userResponseQueue.qsize() = ' + self.userResponseQueue.qsize())
+        except Exception as e:
+            with open('Spider_Start.txt', 'a+') as f:
+                traceback.print_exc(file=f)
+                f.write(repr(e))
+                f.write('\n')
+    def CommonSpider(self, queue):
+        log = self.getLog('Spider.CommonSpider')
+        log.warning('Start')
+
+        # self.manager = InfoManager()
+        # self.manager.start()
+        # self.db_fan = self.manager.FanOpe()
+        # self.db_fol = self.manager.FolOpe()
+        # self.db_mb = self.manager.MblogOpe()
+        self.db_fan = FanOpe()
+        self.db_fol = FolOpe()
+        self.db_mb = MblogOpe()
+        db_user = UserOpe()
+# 分别用于转换表情，去除HTML标签，提取数字，去除他人转发评论
+        self.emotion = re.compile('<span.*?url-icon.*?alt="(.*?)">.*?</span>')
+        self.tag = re.compile(r'<[^>]+>',re.S)
+        self.number = re.compile('\D')
+        self.raw_test = '//@'
+#用于匹配日期
+        self.minutes = '分钟'
+        self.hour = '小时'
+        self.yeaterday = '昨天'
+        self.datesign = '-'
+        self.year = str(datetime.datetime.now().year)
+#    数据库操作类
+
+        res = queue.get()
+        log.warning('CommonSpider Get')
+
+        while res:
+            log.warning('queue.size = ' + str(queue.qsize()))
+            if res.category == 1:
+                try:
+                    result = self.getDetail(res.text)
+                except Exception as e:
+                    with open('spider_info.txt', 'a+') as f:
+                        f.write(res.url)
+                        f.write('\n')
+                        f.write(res.text)
+                        f.write('\n')
+                        traceback.print_exc(file = f)
+                        f.write(repr(e))
+                        f.write('\n\n')
+                else:
+                    temp = res.meta['uid']
+                    db_user.update(temp, result, res.url)
+                    log.warning('Update ' + str(temp))
+
+            elif res.category == 2:
+                try:
+                    result = self.getFan(res.text)
+                except Exception as e:
+                    with open('spider_fan.txt', 'a+') as f:
+                        f.write(res.url)
+                        f.write('\n')
+                        f.write(res.text)
+                        f.write('\n')
+                        traceback.print_exc(file = f)
+                        f.write(repr(e))
+                    #测试使用return，直接结束,正式运行采用continue
+                    log.warning('The Spider Is Stop')
+                    return
+                self.db_fan.insert(res.meta['uid'], result, res.url)
+                log.warning('Fan Insert ' + str(res.meta['uid']))
+
+            elif res.category == 3:
+                try:
+                    result = self.getFol(res.text)
+                except Exception as e:
+                    with open('spider_follow.txt', 'a+') as f:
+                        f.write(res.url)
+                        f.write('\n')
+                        f.write(res.text)
+                        f.write('\n')
+                        traceback.print_exc(file = f)
+                        f.write('\n')
+                        f.write(repr(e))
+                else:
+                    self.db_fol.insert(res.meta['uid'], result, res.url)
+                    log.warning('Follow Insert ' + str(res.meta['uid']))
+
+            else:
+                try:
+                    result = self.getMblog(res.text)
+                except Exception as e:
+                    with open('spider_mblog.txt', 'a+') as f:
+                        f.write(res.url)
+                        f.write('\n')
+                        f.write(res.text)
+                        f.write('\n')
+                        traceback.print_exc(file = f)
+                        f.write(repr(e))
+                else:
+                    self.db_mb.insert(result, res.url)
+                    log.warning('Mblog Insert ' + str(res.meta['uid']))
+            res = queue.get()
+            log.warning('Get')
+
+    def UserSpider(self, queue):
         # self.manager = InfoManager()
         # self.manager.start()
         # self.db_user = self.manager.UserOpe()
-        self.db_user = UserOpe()
-        info = self.db_user.getInfo()
+        db_user = UserOpe()
+        log = self.getLog('Spider.UserSpider')
+        log.warning('Start')
 
-        self.log = self.getLog('Schedule')
-        self.log.warning('Start')
-        try:
-            while True:
-                self.log.warning('Get info ' + str(info))
-                if info:
-                    self.CreateInfoRequest(info, self.log)
-                    uid = self.db_user.getId(GetIDNumber)
-                    self.CreateUidRequest(uid, self.log)
-                    self.log.warning('Finish ' + str(info[0]))
-                else:
-                    self.log.warning('Sleep')
-                    #等待时间
-                    time.sleep(2)
-                    uid = self.db_user.getId(GetIDNumber)
-                    self.CreateUidRequest(uid, self.log)
-                info = self.db_user.getInfo()
-
-        except KeyboardInterrupt as ki:
-            self.log.warning('self.requestQueue.qsize() = ' + self.requestQueue.qsize())
-            self.log.warning('self.uidQueue.qsize() = ' + self.uidQueue.qsize())
-
-    def CreateUidRequest(self, uset, log):
-        for n in uset:
-            req = Request(self.user_url.format(n), 0, meta = {'uid' : n})
-            self.uidQueue.put(req)
-            log.warning('self.uidQueue.size = ' + str(self.uidQueue.qsize()))
-
-    def initUrl(self):
-        self.user_url = 'https://m.weibo.cn/api/container/getIndex?type=uid&value={0}&containerid=100505{0}'
-        self.detail_url = 'https://m.weibo.cn/api/container/getIndex?containerid=230283{0}_-_INFO&title=%25E5%259F%25BA%25E6%259C%25AC%25E4%25BF%25A1%25E6%2581%25AF&luicode=10000011&lfid=230283{0}&type=uid&value={0}'
-        self.fans_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_fans_-_{0}&luicode=10000011&lfid=100505{0}&featurecode=10000326&type=uid&value={0}&since_id=%s'
-        self.fol_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_followers_-_{0}&luicode=10000011&lfid=100505{0}&featurecode=10000326&type=uid&value={0}&page=%s'
-        self.blog_url = 'https://m.weibo.cn/api/container/getIndex?uid={0}&luicode=10000011&lfid=107603{0}&featurecode=10000326&type=uid&value={0}&containerid=107603{0}&page=%s'
-
-# 具体页码规则数还需完善
-    def fillPage(self, info):
-        self.uid = info[0]
-        self.pageOfmblog = ceil(info[1] / 10)
-        self.pageOffans = ceil(info[2] / 20)
-        self.pageOffol = ceil(info[3] / 30)
-
-    def CreatedPageNum(self, num):
-        for n in range(1, num+1):
-            yield n
-
-#   将各类请求随机取段，封装成request，加入requestQueue,
-    def CreateInfoRequest(self, info, log):
-        self.fillPage(info)
-        fa_url = self.fans_url.format(self.uid)
-        fo_url = self.fol_url.format(self.uid)
-        mb_url = self.blog_url.format(self.uid)
-
-        kind = [2, 3, 4]
-        mblog = self.CreatedPageNum(self.pageOfmblog)
-        fans = self.CreatedPageNum(self.pageOffans)
-        follows = self.CreatedPageNum(self.pageOffol)
-        intoErrorQueue = False
-        while kind.__len__():
-
-            size = self.requestQueue.qsize()
-            log.warning('self.requestQueue.size = ' + str(size))
-            errsize = self.errorQueue.qsize()
-            log.warning('self.errorQueue.size = ' + str(errsize))
-
-            if errsize > MaxErrorQueueSize and intoErrorQueue:
-                for n in range(MaxErrorQueueSize):
-                    temp = self.errorQueue.get()
-                    self.requestQueue.put(temp)
-                intoErrorQueue = False          
-
-            if kind.__len__() != 1:
-                choice = random.choice(kind)
-                run = random.randint(3, 5)
-            else:
-                choice = kind[0]
-                run = 99999
-
-            if choice == 4:
+        res = queue.get()
+        while res:
+            log.warning('queue.size = ' + str(queue.qsize()))
+            if res.category == 0:
                 try:
-                    for n in range(run):
-                        page = next(mblog)
-                        req = Request((mb_url % page),
-                                        category = 4, meta = {'uid' : self.uid})
-                        self.requestQueue.put(req)
-                except StopIteration as st:
-                    kind.remove(4)
+                    result = self.getUserInfo(res.text)
+                    db_user.insert(result)
+                    log.warning('User Insert ' + str(result[0]))
+                except Exception as e:
+                    with open('UserSpider.txt', 'a+') as f:
+                        f.write(res.url)
+                        f.write('\n')
+                        f.write(res.text)
+                        f.write('\n')
+                        traceback.print_exc(file = f)
+                        f.write(repr(e))
+            res = queue.get()
+            log.warning('Get')
 
-            elif choice == 2:
-                try:
-                    for n in range(run):
-                        page = next(fans)
-                        req = Request((fa_url % page),
-                                        category = 2, meta = {'uid' : self.uid})
-                        self.requestQueue.put(req)                      
-                except StopIteration as st:
-                    kind.remove(2)
+#从字典中获取相应的值
+    def getUserInfo(self, res):
+        js = json.loads(res)
+        user = js['userInfo']
+        temp = []
+        temp.append(user['id'])
+        temp.append(user['statuses_count'])
+        temp.append(user['followers_count'])
+        temp.append(user['follow_count'])
+        temp.append(user.get('urank', -1))
 
-            else:
-                try:
-                    for n in range(run):
-                        page = next(follows)
-                        req = Request((fo_url % page),
-                                        category = 3, meta = {'uid' : self.uid})
-                        self.requestQueue.put(req)
-                except StopIteration as st:
-                    kind.remove(3)
+        name = pm.escape_string(user.get('screen_name', ''))
+        temp.append(name)
 
+        des = user.get('description', '')
+        des = pm.escape_string(des)
+        temp.append(des)
 
-        req = Request(self.detail_url.format(self.uid), category = 1, 
-                                                meta = {'uid' : self.uid})
-        print ('CreateInfoRequest ', self.uid)
-        self.requestQueue.put(req)       
-        intoErrorQueue = True
+        temp.append(user.get('gender', ''))
+        temp.append(user.get('verified_reason', ''))
+        return temp
+
+    def getDetail(self, res):
+        js = json.loads(res)
+        info = js['cards']
+        fir = info[0]['card_group']
+        sec = len(info[1]['card_group']) >= 3 and info[1]['card_group'] or info[2]['card_group']
+        temp = []
+        #地址
+        temp.append(fir[2]['item_content'])
+        #注册时间
+        temp.append(sec[2]['item_content'])
+        #信用
+        temp.append(sec[1]['item_content'])
+        del js
+        return temp
+
+    def getFan(self, res):
+        js = json.loads(res)
+        js = js['cards'][0]['card_group']
+        temp = []
+        for num in range(len(js)):
+            temp.append(js[num]['user']['id'])
+        del js
+        return temp
+
+    def getFol(self, res):
+        js = json.loads(res)
+        js = js['cards'][0]['card_group']
+        temp = []
+        for num in range(len(js)):
+            temp.append(js[num]['user']['id'])
+        del js
+        return temp
+
+#用于获取微博发表时间
+    def getDate(self, date):
+        if date.find(self.minutes) != -1:
+            return datetime.datetime.now().strftime('%Y-%m-%d')
+
+        elif date.find(self.hour) != -1:
+            num = int(self.number.sub('', date))
+            date = datetime.datetime.now() - datetime.timedelta(hours=num)
+            return date.strftime('%Y-%m-%d')
+
+        elif date.find(self.yeaterday) != -1:
+            now = datetime.datetime.now()
+            yes = datetime.timedelta(days=1)
+            return (now - yes).strftime('%Y-%m-%d')
+
+        elif (date.find(self.datesign) != -1) and len(date) <= 5:
+            sign = date.find(self.datesign)
+            month = date[ : sign]
+            day = date[sign+1 : ]
+            mday = '{}-{}-{}'.format(self.year, month, day)
+            return mday
+
+        else:
+            return date
+
+    def clean(self, text):
+        emoList = self.emotion.findall(text)
+        for e in emoList:
+            text = self.emotion.sub(e, text, count = 1)
+        text = self.tag.sub('', text)
+        text = pm.escape_string(text)
+
+        return text
+
+    def getMblog(self, res):
+        js = json.loads(res)
+        js = js['cards']
+        blog = []
+        for num in range(len(js)):
+            det = js[num]
+            if 'card_group' in det.keys():
+                continue
+            det = det['mblog']
+
+            if 'retweeted_status' in det.keys():
+                temp = self.mblogDetail(det['retweeted_status'])
+                blog.append(temp)
+
+            temp = self.mblogDetail(det)
+            blog.append(temp)
+
+        del js
+        blog = self.dic2list(blog)
+        return blog
+
+    def mblogDetail(self, blog):
+        arr = {}
+        if blog['user'] is None:
+            return {}
+        arr['id'] = blog['user']['id']
+        arr['mid'] = blog['mid']
+        arr['attitudes_count'] = blog['attitudes_count']
+        arr['reposts_count'] = blog['reposts_count']
+        arr['comments_count'] = blog['comments_count']
+        arr['source'] = pm.escape_string(blog['source'])
+
+        if 'retweeted_status' in blog.keys():
+            arr['retweeted_status'] = blog['retweeted_status']['mid']
+            text = blog['raw_text']
+            text = text[ : text.find(self.raw_test)]
+            text = self.tag.sub('', text)
+            arr['text'] = pm.escape_string(text)
+        else:
+            arr['retweeted_status'] = 0
+            arr['text'] = self.clean(blog['text'])
+
+        if 'pics' in blog.keys():
+            arr['pic_number'] = len(blog['pics'])
+        else:
+            arr['pic_number'] = 0
+
+        arr['textLength'] = len(arr['text'])
+        arr['create_at'] = self.getDate(blog['created_at'])
+
+        return arr
+
+    def dic2list(self, temp):
+        res = []
+        for blog in temp:
+            if blog:
+                arr = []
+                arr.append(blog['id'])
+                arr.append(blog['mid'])
+                arr.append(blog['attitudes_count'])
+                arr.append(blog['reposts_count'])
+                arr.append(blog['comments_count'])
+                arr.append(blog['retweeted_status'])
+                arr.append(blog['pic_number'])
+                arr.append(blog['textLength'])
+                arr.append(blog['source'])
+                arr.append(blog['text'])
+                arr.append(blog['create_at'])
+                res.append(arr)
+        return res
 
 if __name__ == "__main__":
-    dl = Schedule()
+    dl = WeiboSpider()
     dl.Start()
