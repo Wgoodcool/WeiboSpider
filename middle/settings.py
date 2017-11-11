@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Oct  9 08:34:51 2017
+
+@author: wzx0518
+"""
+
 # =============================================================================
 # The Setting Of Weibo Spider
 # =============================================================================
@@ -10,29 +17,30 @@
 MYSQL_DB = 'weibo_info'
 MYSQL_HOSTS = '127.0.0.1'
 MYSQL_USER = 'root'
-MYSQL_PW = ''
+MYSQL_PW = '******'
 MYSQL_PORT = 3306
 
 DB_USERINFO = 'user_info'
 DB_MBLOGINFO = 'weibo_info'
-DB_FOLINFO = 'follow'
+DB_FOLINFO = 'db_follow'
 DB_FANINFO = 'db_fan'
 DB_PROXY = 'ip'
 
 # =============================================================================
 # Downloader 
 # =============================================================================
-
+#一个url的最大请求次数
+MaxRequestTime = 5
 #一次可以开启的进程数量
-ProcessNumber = 5
+ProcessNumber = 2
 #用户ID协程一次能够处理的request数
-uidGeventProcessNumber = 2
+uidGeventProcessNumber = 15
 #详情协程一次能够处理的request数
-infoGeventProcessNumber = 2
+infoGeventProcessNumber = 15
 #用户id协程最大并行量
-maxuidCoroutineNum = 50
+maxuidCoroutineNum = 5
 #详情协程最大并行量
-maxinfoCoroutineNum = 50
+maxinfoCoroutineNum = 5
 
 # Header
 UserAgent = [
@@ -99,3 +107,15 @@ UserAgent = [
 cookie = [
         '_T_WM=3e2241ed27286160cf56f68539030cd2'
         ]
+# =============================================================================
+# Schedule
+# =============================================================================
+SleepTime = 20
+GetIDNumber = 2
+
+# =============================================================================
+# MiddleQueue
+# =============================================================================
+#info请求队列最大请求数
+MaxrequestQueueSize = 50
+MaxErrorQueueSize = 100
