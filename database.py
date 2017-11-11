@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
-# =============================================================================
-# 更新说明：
-# 将个别函数出错的sql全都输出到文件中，方便查看具体错误
-# 对getInfo()进行逻辑完善，使其在返回用户信时，将redundance置为4，保证当下不被反复抓取
-# ！！！此处存在插入关注信息时会出现被关注者ID为1的情况！！！
-# =============================================================================
-# TODO: 所有操作失败后的处理方式
-# TODO: 各操作类需要加锁
 import pymysql as pm
+# import MySQLdb as pm
 from middle.settings import MYSQL_DB, MYSQL_HOSTS, MYSQL_USER, MYSQL_PW, MYSQL_PORT
 from middle.settings import DB_USERINFO, DB_MBLOGINFO, DB_FOLINFO, DB_FANINFO, DB_PROXY
+
+from warnings import filterwarnings
+filterwarnings('error', category=pm.Warning)
 
 class SqlOpe:
     def __init__(self, user, pw, table, hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
@@ -18,10 +14,12 @@ class SqlOpe:
                               db = db,
                               user = user,
                               password = pw,
-                              charset = 'utf8')
+                              charset = 'utf8mb4')
         self.table = table
         self.cursor = self.ope.cursor()  
-        self.cursor.execute('use {}'.format(db))      
+        self.cursor.execute('use {}'.format(db)) 
+        # 保证数据库连接是utf8mb4，以支持Unicode emoji 
+        self.cursor.execute('SET NAMES utf8mb4;')     
 
     def findUserId (self, uid):
         sql = 'select `userid` from `{}` where `userid` = {}'.format(self.table, uid)
@@ -33,10 +31,33 @@ class SqlOpe:
             return res[0]
 
     def removeUser(self, uid):
-        #只删除一个会出问题，但是该爬虫不会出现只删除一次的情况，故不需要更多考虑
-        uid = str(tuple(uid))
+        if len(uid) == 1:
+            uid = '({})'.format(uid[0])
+        else:
+            uid = str(tuple(uid))
+
         sql = 'DELETE FROM `{}` WHERE `userid` IN '.format(self.table) + uid
-        res = self.cursor.execute(sql)
+        try:
+            res = self.cursor.execute(sql)
+
+        except pm.Warning as w:
+            with open('db_remove_warning.txt', 'a+') as f:
+                f.write('Warning :')
+                f.write(repr(w))
+                f.write('\n')
+
+        except pm.Error as e:
+            try:
+                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+            except IndexError:
+                errorInfo = "MySQL Error: %s" % str(e)
+
+            with open('db_remove.txt', 'a+') as f:
+                f.write(sql)
+                f.write('\n')
+                f.write(errorInfo)
+                f.write('\n\n')
+
         self.ope.commit()
         return res
 
@@ -56,40 +77,73 @@ class UserOpe (SqlOpe):
 
 #插入初步用户信息
     def insert (self, info):
-        sql = 'INSERT INTO `{}`(`userid`, `statuses_count`,\
+        sql = 'INSERT IGNORE INTO `{}`(`userid`, `statuses_count`,\
                 `fans_count`, `follow_count`, `urank`, `username`, \
                 `description`, `gender`, `verified_reason`, `redundance`) VALUES'.format(self.table)
 
         num = ' %s,' * 5
         char = ' \'%s\',' * 4
 
-        if (info[2] > 3000 or info[3] > 3000):
-            end = ' ON DUPLICATE KEY UPDATE `redundance` = 3'
+        if info[2] > 3000 or info[3] > 3000:
             val = ' (' + num[1:] + char + ' 3)'
         else:
-            end = ' ON DUPLICATE KEY UPDATE `redundance` = 1'
             val = ' (' + num[1:] + char + ' 1)'
 
         val = val % tuple(info)
-        sql = sql + val + end
+        sql = sql + val
         try:
             self.cursor.execute(sql)
-        except:
-            with open('insertwrong.txt', 'a+') as f:
+
+        except pm.Warning as w:
+            with open('db_user_insert_warning.txt', 'a+') as f:
+                f.write('Warning :')
+                f.write(repr(w))
+                f.write('\n')
+
+        except pm.Error as e:
+            try:
+                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+            except IndexError:  
+                errorInfo = "MySQL Error: %s" % str(e)
+
+            with open('db_user_insert.txt', 'a+') as f:
+                f.write(url)
+                f.write('\n')
                 f.write(sql)
-            print (sql)
+                f.write('\n')
+                f.write(errorInfo)
+                f.write('\n\n')
         self.ope.commit()
 
 # 完善用户所有信息
-    def update(self, uid, info):
+    def update(self, uid, info, url):
         sql = 'UPDATE `{}` SET `address` = \'{}\', `createtime` = \'{}\', `credit` = \'{}\',\
-                    `utag` = \'{}\', `redundance` = 2 WHERE `userid` = {}'
-        sql = sql.format(self.table, info[0], info[1], info[2], info[3], uid)
+                     `redundance` = 2 WHERE `userid` = {}'
+        sql = sql.format(self.table, info[0], info[1], info[2], uid)
         try:
             self.cursor.execute(sql)
             self.ope.commit()
-        except:
+
+        except pm.Warning as w:
+            with open('db_user_update_warning.txt', 'a+') as f:
+                f.write('Warning :')
+                f.write(repr(w))
+                f.write('\n')
+
+        except pm.Error as e:
             self.ope.rollback()
+            try:
+                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+            except IndexError:
+                errorInfo = "MySQL Error: %s" % str(e)
+
+            with open('db_user_update.txt', 'a+') as f:
+                f.write(url)
+                f.write('\n')
+                f.write(sql)
+                f.write('\n')
+                f.write(errorInfo)
+                f.write('\n\n')
 
 #获取用户ID，用于完善信息
     def getId(self, num):
@@ -102,7 +156,6 @@ class UserOpe (SqlOpe):
             uid = []
             for n in res:
                 uid.append(n[0])
-            print (uid)
             if uid.__len__() != 0:
                 self.removeUser(uid)
             return uid
@@ -118,8 +171,27 @@ class UserOpe (SqlOpe):
         if res is None:
             return None
         else:
-            sql = 'UPDATE {} SET `redundance` = 4 WHERE `userid` = {}'.format(self.table, res[0])
-            self.cursor.execute(sql)
+            try:
+                sql = 'UPDATE {} SET `redundance` = 4 WHERE `userid` = {}'.format(self.table, res[0])
+                self.cursor.execute(sql)
+            except pm.Warning as w:
+                with open('db_user_getInfo_warning.txt', 'a+') as f:
+                    f.write('Warning :')
+                    f.write(repr(w))
+                    f.write('\n')
+            except pm.Error as e:
+                self.ope.rollback()
+                try:
+                    errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+                except IndexError:
+                    errorInfo = "MySQL Error: %s" % str(e)
+                with open('db_user_getinfo.txt', 'a+') as f:
+                    f.write(url)
+                    f.write('\n')
+                    f.write(sql)
+                    f.write('\n')
+                    f.write(errorInfo)
+                    f.write('\n\n')
             self.ope.commit()
             return res
 
@@ -128,10 +200,9 @@ class MblogOpe (SqlOpe):
                  hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
         SqlOpe.__init__(self, user, pw, table, hosts, port, db)
 
-    def insert(self, info):
-        sql = 'INSERT INTO `{}` VALUES'.format(self.table)
+    def insert(self, info, url):
+        sql = 'INSERT IGNORE INTO `{}` VALUES'.format(self.table)
         det = []
-        end = ' ON DUPLICATE KEY UPDATE `uid` = `uid` AND `mid` = `mid`'
         for item in info:
             num = ' %s,' * 8
             char = ' \'%s\',' * 3
@@ -139,12 +210,31 @@ class MblogOpe (SqlOpe):
             val = val % tuple(item)
             det.append(val)
         val = ','.join(det)
-        sql = sql + val + end
+        sql = sql + val
+
         try:
             self.cursor.execute(sql)
-        except:
-            with open('mblogwrong.txt', 'a+') as f:
+
+        except pm.Warning as w:
+            with open('db_mblog_insert_warning.txt', 'a+') as f:
+                f.write('Warning :')
+                f.write(repr(w))
+                f.write('\n')
+
+        except pm.Error as e:
+            try:
+                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+            except IndexError:
+                errorInfo = "MySQL Error: %s" % str(e)
+
+            with open('db_mblog_insert.txt', 'a+') as f:
+                f.write(url)
+                f.write('\n')
                 f.write(sql)
+                f.write('\n')
+                f.write(errorInfo)
+                f.write('\n\n')
+
         self.ope.commit()
 
 # =============================================================================
@@ -155,13 +245,34 @@ class FanOpe (SqlOpe):
                  hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
         SqlOpe.__init__(self, user, pw, table, hosts, port, db)
 
-    def insert(self, hoster, uid):
-        sql = 'INSERT INTO `{}` VALUES'.format(self.table)
-        end = ' ON DUPLICATE KEY UPDATE `uid` = `uid` AND `fan_id` = `fan_id`'
+    def insert(self, hoster, uid, url):
+        sql = 'INSERT IGNORE INTO `{}` VALUES'.format(self.table)
         val = ' ({}, %s),'.format(hoster)
         val = val * len(uid) % tuple(uid)
-        sql = sql + val[:-1] + end
-        self.cursor.execute(sql)
+        sql = sql + val[:-1]
+
+        try:
+            self.cursor.execute(sql)
+
+        except pm.Warning as w:
+            with open('db_fan_insert_warning.txt', 'a+') as f:
+                f.write('Warning :')
+                f.write(repr(w))
+                f.write('\n')
+        except pm.Error as e:
+            try:
+                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+            except IndexError:  
+                errorInfo = "MySQL Error : %s" % str(e)
+
+            with open('db_fan_insert.txt', 'a+') as f:
+                f.write(url)
+                f.write('\n')
+                f.write(sql)
+                f.write('\n')
+                f.write(errorInfo)
+                f.write('\n\n')
+
         self.ope.commit()
 
 class FolOpe (SqlOpe):
@@ -169,36 +280,37 @@ class FolOpe (SqlOpe):
                  hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
         SqlOpe.__init__(self, user, pw, table, hosts, port, db)
 
-    def insert(self, hoster, uid):
-        sql = 'INSERT INTO `{}` VALUES'.format(self.table)
-        end = ' ON DUPLICATE KEY UPDATE `uid` = `uid` AND `follow_id` = `follow_id`'
+    def insert(self, hoster, uid, url):
+        sql = 'INSERT IGNORE INTO `{}` VALUES'.format(self.table)
         val = ' ({}, %s),'.format(hoster)
         val = val * len(uid) % tuple(uid)
-        sql = sql + val[:-1] + end
-        self.cursor.execute(sql)
-        self.ope.commit()
+        sql = sql + val[:-1]
 
-class proxyOpe(SqlOpe):
-    def __init__(self, user = MYSQL_USER, pw = MYSQL_PW, table = DB_PROXY, 
-                 hosts = MYSQL_HOSTS, port = MYSQL_PORT, db = MYSQL_DB):
-        SqlOpe.__init__(self, user, pw, table, hosts, port, db)
+        try:
+            self.cursor.execute(sql)
 
-    def delIp(self, ip):
-        sql = 'DELETE FROM `{}` WHERE '
-        sql = 'DELETE FROM `{}` WHERE `ip` = \''.format(self.table)
-        sql = sql + ip + '\''
-        self.cursor.execute(sql)
+        except pm.Warning as w:
+            with open('db_follow_insert_warning.txt', 'a+') as f:
+                f.write('Warning :')
+                f.write(repr(w))
+                f.write('\n')
+
+        except pm.Error as e:
+            try: 
+                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
+            except IndexError:  
+                errorInfo = "MySQL Error: %s" % str(e)
+
+            with open('db_follow_insert.txt', 'a+') as f:
+                f.write(url)
+                f.write('\n')
+                f.write(sql)
+                f.write('\n')
+                f.write(errorInfo)
+                f.write('\n\n')
+
         self.ope.commit()
-    
-    def getProxy(self):
-        sql = 'SELECT `ip`, `port` FROM `{}` LIMIT 1'.format(self.table)
-        self.cursor.execute(sql)
-        res = self.cursor.fetchone()
-        if res is None:
-            return None
-        else:
-            return res
 
 if __name__ == "__main__":
-    url = UserOpe()
-    print (url.getId(1))
+    fan = FanOpe()
+    fan.insert(123, [111, 123], 'aaa')
