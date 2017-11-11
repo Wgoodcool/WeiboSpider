@@ -34,6 +34,7 @@ class Downloader:
         # self.qproxy = proxyQueue
         #日志队列
         self.logqueue = logQueue
+        self.log = self.getLog('Downloader')
 
         #通过队列的阻塞来控制启动的最大进程数
         self.userProcessNumberQueue = Queue(ProcessNumber)    
@@ -42,7 +43,7 @@ class Downloader:
         self.uidGeventProcessNumber = uidGeventProcessNumber
         self.infoGeventProcessNumber = infoGeventProcessNumber
         #代理ip地址
-        self.proxy = {'https' : '************'}
+        self.proxy = {'https' : 'https://forward.xdaili.cn:80'}
 
     def getLog(self, name):
         logger = logging.getLogger(name)
@@ -52,9 +53,7 @@ class Downloader:
         return logger
 
     def Start(self):
-        print ('Is Downloader')
-        log = self.getLog('Downloader')
-        log.warning('Start')
+        self.log.warning('Start')
         try:
             uid = Process(target = self.userRequestManager)
             com = Process(target = self.infoRequestManager)
@@ -64,23 +63,22 @@ class Downloader:
             uid.join()
             com.join()
         except KeyboardInterrupt as ki:
-            log.warning('self.quid.qsize() = ' + self.quid.qsize())
-            log.warning('self.qresquest.qsize() = ' + self.qresquest.qsize())
-            log.warning('self.qresponse.qsize() = ' + self.qresponse.qsize()) 
-            log.warning('self.qerror.qsize() = ' + self.qerror.qsize())
-            log.warning('self.quser.qisze() = ' + self.quser.qsize())
-            log.warning('self.logqueue.qsize() = ' + self.quser.qsize())
+            self.log.warning('self.quid.qsize() = ' + self.quid.qsize())
+            self.log.warning('self.qresquest.qsize() = ' + self.qresquest.qsize())
+            self.log.warning('self.qresponse.qsize() = ' + self.qresponse.qsize()) 
+            self.log.warning('self.qerror.qsize() = ' + self.qerror.qsize())
+            self.log.warning('self.quser.qisze() = ' + self.quser.qsize())
+            self.log.warning('self.logqueue.qsize() = ' + self.quser.qsize())
         except Exception as e:
             with open('Downloader_Start.txt', 'a+') as f:
                 traceback.print_exc(file=f)
                 f.write(repr(e))
                 f.write('\n')
 
-        log.warning('End!')
+        self.log.warning('End!')
 
     def userRequestManager(self):
-        log = self.getLog('userRequestManager')
-        log.warning('Start')
+        self.log.warning('userRequestManager Start')
         req = self.quid.get()
         requestList = []
         while req:
@@ -92,21 +90,19 @@ class Downloader:
                 p.start()
                 requestList = []
                 #达到一定大小会阻塞，除非userRequest完成所有的抓取工作
-                log.warning('self.userProcessNumberQueue.size = ' + str(self.userProcessNumberQueue.qsize()))
+                self.log.warning('self.userProcessNumberQueue.size = ' + str(self.userProcessNumberQueue.qsize()))
                 self.userProcessNumberQueue.put(0)
-                log.warning('Create Process')
+                self.log.warning('Create Process')
 
     def userGevent(self, requestList):
-        print ('userGevent')
-        log = self.getLog('Downloader.userGevent')
-        log.warning('Start')
+        self.log.warning('userGevent Start')
         self.sem = Semaphore(maxuidCoroutineNum)
-        
+
         start = time.clock()
         task = []
         try:
             for req in requestList:
-                task.append(gevent.spawn(self.userFetch, (req, log)))
+                task.append(gevent.spawn(self.userFetch, (req, self.log)))
             gevent.joinall(task)
         except Exception as e:
             with open('userGevent.txt', 'a+') as f:
@@ -115,7 +111,7 @@ class Downloader:
                 f.write('\n')
         end = time.clock()
 
-        log.warning('All End, Use Time is ' + str(end-start))
+        self.log.warning('All End, Use Time is ' + str(end-start))
         self.userProcessNumberQueue.get()
 
     def userFetch(self, param):
@@ -166,9 +162,7 @@ class Downloader:
             self.quser.put(userResponse)
 
     def infoRequestManager(self):
-        print ('infoRequestManager')
-        log = self.getLog('Downloader.infoRequestManager')
-        log.warning('Start')
+        self.log.warning('infoRequestManager Start')
         infoReqList = []
         req = self.qresquest.get()
         try:
@@ -180,11 +174,11 @@ class Downloader:
                                     args = (infoReqList, ))
                     p.start()
                     infoReqList = []
-                    log.warning('self.infoProcessNumberQueue.size = ' + str(self.infoProcessNumberQueue.qsize()))
+                    self.log.warning('self.infoProcessNumberQueue.size = ' + str(self.infoProcessNumberQueue.qsize()))
                     self.infoProcessNumberQueue.put(0)
-                    log.warning('Create Process')
+                    self.log.warning('Create Process')
         except KeyboardInterrupt as KI:
-            log.warning('self.qresquest.qsize() = ' + self.qresquest.qsize())
+            self.log.warning('self.qresquest.qsize() = ' + self.qresquest.qsize())
         except Exception as e:
             with open('infoRequestManager.txt', 'a+') as f:
                 traceback.print_exc(file = f)
@@ -192,9 +186,7 @@ class Downloader:
                 f.write('\n')
 
     def infoGevent(self, infoReqList):
-        print ('infoGevent')
-        log = self.getLog('Downloader.infoGevent')
-        log.warning('Start')
+        self.log.warning('infoGevent Start')
         #一次允许并发的最大协程数
         self.sem = Semaphore(maxinfoCoroutineNum)
         self.manager = InfoManager()
@@ -203,7 +195,7 @@ class Downloader:
             start = time.clock()
             task = []
             for req in infoReqList:
-                task.append(gevent.spawn(self.infoFetch, (req, log)))
+                task.append(gevent.spawn(self.infoFetch, (req, self.log)))
             gevent.joinall(task)
             end = time.clock()
         except Exception as e:
@@ -211,7 +203,7 @@ class Downloader:
                 traceback.print_exc(file=f)
                 f.write(repr(e))
                 f.write('\n')
-        log.warning('Process End, Use Time Is ' + str(end - start))
+        self.log.warning('Process End, Use Time Is ' + str(end - start))
         self.infoProcessNumberQueue.get()
 
     def infoFetch(self, param):
@@ -261,8 +253,8 @@ class Downloader:
             self.qresponse.put(infoResponse)
 
     def getIp(self):
-        orderno = '************'
-        secret = '************'
+        orderno = 'ZF20171158496HBnRg3'
+        secret = '75c5f022a9e34ad1a8d95190b32a170d'
         timestamp = str(int(time.time()))
         string = 'orderno={},secret={},timestamp={}'.format(orderno, secret, timestamp)
         string = string.encode()
