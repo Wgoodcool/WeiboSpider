@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
-# =============================================================================
-# TODO: 数据库操作类需要考虑并发问题,数据库操作类需要加锁
-# =============================================================================
-from middle.middlequeue import responseQueue, userResponseQueue
+from middle.middlequeue import responseQueue
 from middle.middlequeue import logQueue
-#from manager import InfoManager
 from database import UserOpe, FanOpe, FolOpe, MblogOpe
 
 import logging
@@ -19,7 +15,6 @@ import pymysql as pm
 class WeiboSpider:
     def __init__(self):
         self.responseQueue = responseQueue
-        self.userResponseQueue = userResponseQueue
         self.logqueue = logQueue
         self.log = self.getLog('Spider')
 
@@ -32,34 +27,22 @@ class WeiboSpider:
 
     def Start(self):
         try:
-            com = Process(target = self.CommonSpider, args = (self.responseQueue, ))
-            user = Process(target = self.UserSpider, args = (self.userResponseQueue, ))
-            self.log.warning('Start')
-            com.start()
-            user.start()
-
-            com.join()
-            user.join()
+            self.Spider(self.responseQueue)
         except KeyboardInterrupt as Ki:
             self.log.warning('self.responseQueue.qize() = ' + self.responseQueue.qsize())
-            self.log.warning('self.userResponseQueue.qsize() = ' + self.userResponseQueue.qsize())
         except Exception as e:
             with open('Spider_Start.txt', 'a+') as f:
                 traceback.print_exc(file=f)
                 f.write(repr(e))
                 f.write('\n')
-    def CommonSpider(self, queue):
-        self.log.warning('CommonSpider Start')
 
-        # self.manager = InfoManager()
-        # self.manager.start()
-        # self.db_fan = self.manager.FanOpe()
-        # self.db_fol = self.manager.FolOpe()
-        # self.db_mb = self.manager.MblogOpe()
+    def Spider(self, queue):
+        self.log.warning('Spider Start')
+# 数据库操作类
         self.db_fan = FanOpe()
         self.db_fol = FolOpe()
         self.db_mb = MblogOpe()
-        db_user = UserOpe()
+        self.db_user = UserOpe()
 # 分别用于转换表情，去除HTML标签，提取数字，去除他人转发评论
         self.emotion = re.compile('<span.*?url-icon.*?alt="(.*?)">.*?</span>')
         self.tag = re.compile(r'<[^>]+>',re.S)
@@ -74,11 +57,27 @@ class WeiboSpider:
 #    数据库操作类
 
         res = queue.get()
-        self.log.warning('CommonSpider Get')
+        self.log.warning('Spider Get')
 
         while res:
             self.log.warning('queue.size = ' + str(queue.qsize()))
-            if res.category == 1:
+
+            if res.category == 0:
+                try:
+                    result = self.getUserInfo(res.text)
+                except Exception as e:
+                    with open('UserSpider.txt', 'a+') as f:
+                        f.write(res.url)
+                        f.write('\n')
+                        f.write(res.text)
+                        f.write('\n')
+                        traceback.print_exc(file = f)
+                        f.write(repr(e))
+                else:
+                    self.db_user.insert(result, res.url)
+                    self.log.warning('User Insert ' + str(result[0]))
+ 
+            elif res.category == 1:
                 try:
                     result = self.getDetail(res.text)
                 except Exception as e:
@@ -92,7 +91,7 @@ class WeiboSpider:
                         f.write('\n\n')
                 else:
                     temp = res.meta['uid']
-                    db_user.update(temp, result, res.url)
+                    self.db_user.update(temp, result, res.url)
                     self.log.warning('Update ' + str(temp))
 
             elif res.category == 2:
@@ -150,33 +149,6 @@ class WeiboSpider:
                     self.db_mb.insert(result, res.url)
                     self.log.warning('Mblog Insert ' + str(res.meta['uid']))
             res = queue.get()
-
-    def UserSpider(self, queue):
-        # self.manager = InfoManager()
-        # self.manager.start()
-        # self.db_user = self.manager.UserOpe()
-        db_user = UserOpe()
-        self.log.warning('UserSpider Start')
-
-        res = queue.get()
-        while res:
-            self.log.warning('queue.size = ' + str(queue.qsize()))
-            if res.category == 0:
-                try:
-                    result = self.getUserInfo(res.text)
-                except Exception as e:
-                    with open('UserSpider.txt', 'a+') as f:
-                        f.write(res.url)
-                        f.write('\n')
-                        f.write(res.text)
-                        f.write('\n')
-                        traceback.print_exc(file = f)
-                        f.write(repr(e))
-                else:
-                    db_user.insert(result)
-                    self.log.warning('User Insert ' + str(result[0]))
-            res = queue.get()
-            self.log.warning('Get')
 
 #从字典中获取相应的值
     def getUserInfo(self, res):
