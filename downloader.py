@@ -1,6 +1,6 @@
 from middle.transmission import Response
 from middle.middlequeue import uidQueue, requestQueue
-from middle.middlequeue import responseQueue, errorQueue, userResponseQueue
+from middle.middlequeue import responseQueue, errorQueue
 from middle.middlequeue import proxyQueue
 from middle.middlequeue import logQueue
 from middle.settings import cookie, UserAgent
@@ -30,7 +30,6 @@ class Downloader:
         self.qresquest = requestQueue
         self.qresponse = responseQueue  
         self.qerror = errorQueue
-        self.quser = userResponseQueue
         # self.qproxy = proxyQueue
         #日志队列
         self.logqueue = logQueue
@@ -67,8 +66,7 @@ class Downloader:
             self.log.warning('self.qresquest.qsize() = ' + self.qresquest.qsize())
             self.log.warning('self.qresponse.qsize() = ' + self.qresponse.qsize()) 
             self.log.warning('self.qerror.qsize() = ' + self.qerror.qsize())
-            self.log.warning('self.quser.qisze() = ' + self.quser.qsize())
-            self.log.warning('self.logqueue.qsize() = ' + self.quser.qsize())
+            self.log.warning('self.logqueue.qsize() = ' + self.logqueue.qsize())
         except Exception as e:
             with open('Downloader_Start.txt', 'a+') as f:
                 traceback.print_exc(file=f)
@@ -144,7 +142,6 @@ class Downloader:
             self.quid.put(req)
         finally:
             self.sem.release()
-            log.warning('self.quser.size = ' + str(self.quser.qsize()))
             log.warning('self.quid.size = ' + str(self.quid.qsize()))
 
         if userRes is None:
@@ -159,7 +156,7 @@ class Downloader:
         else:
             log.warning('Success Download')
             userResponse = Response(url, cate, userRes.text, meta)
-            self.quser.put(userResponse)
+            self.qresponse.put(userResponse)
 
     def infoRequestManager(self):
         self.log.warning('infoRequestManager Start')
