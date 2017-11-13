@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import pymysql as pm
-# import MySQLdb as pm
 from middle.settings import MYSQL_DB, MYSQL_HOSTS, MYSQL_USER, MYSQL_PW, MYSQL_PORT
 from middle.settings import DB_USERINFO, DB_MBLOGINFO, DB_FOLINFO, DB_FANINFO, DB_PROXY
 
@@ -76,7 +75,7 @@ class UserOpe (SqlOpe):
         SqlOpe.__init__(self, user, pw, table, hosts, port, db)
 
 #插入初步用户信息
-    def insert (self, info):
+    def insert (self, info, url):
         sql = 'INSERT IGNORE INTO `{}`(`userid`, `statuses_count`,\
                 `fans_count`, `follow_count`, `urank`, `username`, \
                 `description`, `gender`, `verified_reason`, `redundance`) VALUES'.format(self.table)
@@ -99,21 +98,19 @@ class UserOpe (SqlOpe):
                 f.write('Warning :')
                 f.write(repr(w))
                 f.write('\n')
+                f.write(url)
+                f.write('\n\n')
 
         except pm.Error as e:
-            try:
-                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
-            except IndexError:  
-                errorInfo = "MySQL Error: %s" % str(e)
-
             with open('db_user_insert.txt', 'a+') as f:
                 f.write(url)
                 f.write('\n')
                 f.write(sql)
                 f.write('\n')
-                f.write(errorInfo)
+                f.write(repr(e))
                 f.write('\n\n')
-        self.ope.commit()
+        else:
+            self.ope.commit()
 
 # 完善用户所有信息
     def update(self, uid, info, url):
@@ -122,28 +119,26 @@ class UserOpe (SqlOpe):
         sql = sql.format(self.table, info[0], info[1], info[2], uid)
         try:
             self.cursor.execute(sql)
-            self.ope.commit()
 
         except pm.Warning as w:
             with open('db_user_update_warning.txt', 'a+') as f:
                 f.write('Warning :')
                 f.write(repr(w))
                 f.write('\n')
+                f.write(url)
+                f.write('\n\n')
 
         except pm.Error as e:
             self.ope.rollback()
-            try:
-                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
-            except IndexError:
-                errorInfo = "MySQL Error: %s" % str(e)
-
             with open('db_user_update.txt', 'a+') as f:
                 f.write(url)
                 f.write('\n')
                 f.write(sql)
                 f.write('\n')
-                f.write(errorInfo)
+                f.write(repr(e))
                 f.write('\n\n')
+        else:
+            self.ope.commit()
 
 #获取用户ID，用于完善信息
     def getId(self, num):
@@ -192,8 +187,9 @@ class UserOpe (SqlOpe):
                     f.write('\n')
                     f.write(errorInfo)
                     f.write('\n\n')
-            self.ope.commit()
-            return res
+            else:
+                self.ope.commit()
+                return res
 
 class MblogOpe (SqlOpe):
     def __init__(self, user = MYSQL_USER, pw = MYSQL_PW, table = DB_MBLOGINFO, 
@@ -220,22 +216,19 @@ class MblogOpe (SqlOpe):
                 f.write('Warning :')
                 f.write(repr(w))
                 f.write('\n')
+                f.write(url)
+                f.write('\n\n')
 
         except pm.Error as e:
-            try:
-                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
-            except IndexError:
-                errorInfo = "MySQL Error: %s" % str(e)
-
             with open('db_mblog_insert.txt', 'a+') as f:
                 f.write(url)
                 f.write('\n')
                 f.write(sql)
                 f.write('\n')
-                f.write(errorInfo)
+                f.write(repr(e))
                 f.write('\n\n')
-
-        self.ope.commit()
+        else:
+            self.ope.commit()
 
 # =============================================================================
 # 数据插入之后会提取一份到UserDatabase
@@ -259,21 +252,19 @@ class FanOpe (SqlOpe):
                 f.write('Warning :')
                 f.write(repr(w))
                 f.write('\n')
-        except pm.Error as e:
-            try:
-                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
-            except IndexError:  
-                errorInfo = "MySQL Error : %s" % str(e)
+                f.write(url)
+                f.write('\n\n')
 
+        except pm.Error as e:
             with open('db_fan_insert.txt', 'a+') as f:
                 f.write(url)
                 f.write('\n')
                 f.write(sql)
                 f.write('\n')
-                f.write(errorInfo)
+                f.write(repr(e))
                 f.write('\n\n')
-
-        self.ope.commit()
+        else:
+            self.ope.commit()
 
 class FolOpe (SqlOpe):
     def __init__(self, user = MYSQL_USER, pw = MYSQL_PW, table = DB_FOLINFO, 
@@ -294,22 +285,19 @@ class FolOpe (SqlOpe):
                 f.write('Warning :')
                 f.write(repr(w))
                 f.write('\n')
+                f.write(url)
+                f.write('\n\n')
 
         except pm.Error as e:
-            try: 
-                errorInfo = "Error %d:%s" % (e.args[0], e.args[1])
-            except IndexError:  
-                errorInfo = "MySQL Error: %s" % str(e)
-
             with open('db_follow_insert.txt', 'a+') as f:
                 f.write(url)
                 f.write('\n')
                 f.write(sql)
                 f.write('\n')
-                f.write(errorInfo)
+                f.write(repr(e))
                 f.write('\n\n')
-
-        self.ope.commit()
+        else:
+            self.ope.commit()
 
 if __name__ == "__main__":
     fan = FanOpe()
