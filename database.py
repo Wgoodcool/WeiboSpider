@@ -302,3 +302,4 @@ class FolOpe (SqlOpe):
 if __name__ == "__main__":
     fan = FanOpe()
     fan.insert(123, [111, 123], 'aaa')
+    print("hello world")
